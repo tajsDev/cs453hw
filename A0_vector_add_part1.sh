@@ -2,8 +2,8 @@
 #SBATCH --job-name=CS453_A0_CUDA_Vector_Add  #the name of your job
 
 #change to your NAU ID below
-#SBATCH --output=/scratch/mg2745/A0_CUDA_vector_add_part1.out #this is the file for stdout 
-#SBATCH --error=/scratch/mg2745/A0_CUDA_vector_add_part1.err #this is the file for stderr
+#SBATCH --output=/scratch/taj262/A0_CUDA_vector_add_part1.out #this is the file for stdout 
+#SBATCH --error=/scratch/taj262/A0_CUDA_vector_add_part1.err #this is the file for stderr
 														
 
 #SBATCH --time=00:03:00		#Job timelimit is 3 minutes
