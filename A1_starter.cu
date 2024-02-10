@@ -24,8 +24,8 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 
 
 // You may prefer to move these parameters to your job script
-#define N 1000000 //Elements in N
-#define MODE 2 //GPU Mode
+#define N 100 //Elements in N
+#define MODE 1 //GPU Mode
 #define NUMELEMPERTHREAD 8 //This is r in the assignment instructions for MODE 3
 #define BLOCKSIZE 1024 //GPU CUDA block size for the first two kernels for MODES 2-4.
 
@@ -122,7 +122,7 @@ int main(int argc, char *argv[])
 	errCode = cudaMemcpy(dev_A,A,sizeof(float) * N, cudaMemcpyHostToDevice);
 
 	if(errCode != cudaSuccess ) cout << "\nError wth hst" << errCode << "\n";
-	
+	gpuErrchk(cudaMalloc((float**)&dev_mean,sizeof(float)));	
 	errCode = cudaMemcpy(dev_mean,&meanGPU,sizeof(float),cudaMemcpyHostToDevice);
 	gpuErrchk(cudaMalloc((float**)&dev_stddev, sizeof(float)));	
 
@@ -142,7 +142,6 @@ int main(int argc, char *argv[])
 		//allocate and copy to GPU
 		gpuErrchk(cudaMemcpy(dev_globalSum,&globalSum,sizeof(float),cudaMemcpyHostToDevice));  	
 		gpuErrchk(cudaMemcpy(dev_globalSumDiffElemTotalSumSquared,&globalSumDiffElemTotalSumSquared,sizeof(float),cudaMemcpyHostToDevice));	
-	printf("\n this is dev global sum = %f,%f,%f",dev_stddev,dev_globalSumDiffElemTotalSumSquared,dev_globalSum);
 }
 
 	
@@ -194,17 +193,17 @@ int main(int argc, char *argv[])
 		
 		//Write code here
 		//Uncomment and update code below
-		//unsigned int numBlocks = 0;
-
-		// dim3 dimGrid(numBlocks, 1, 1);
-		// dim3 dimBlock(BLOCKDIM, 1, 1);
+		unsigned int numBlocks =  (N + (BLOCKSIZE  * NUMELEMPERTHREAD) - 1) / (BLOCKSIZE * NUMELEMPERTHREAD); 
+ 
+		 dim3 dimGrid(numBlocks, 1, 1);
+		 dim3 dimBlock(BLOCKDIM, 1, 1);
 
 		//Compute Step 1 -- sum of all elements
-		// computeGlobalSumWithMultipleElemsPerThread<<<dimGrid, dimBlock>>>(dev_A, N, NUMELEMPERTHREAD, dev_globalSum);
+		 computeGlobalSumWithMultipleElemsPerThread<<<dimGrid, dimBlock>>>(dev_A, N, NUMELEMPERTHREAD, dev_globalSum);
 		//Compute Step 2 -- compute mean, and then the sum of differences between each element and the mean
-		// computeSumDiffElemWithMultipleElemsPerThread<<<dimGrid, dimBlock>>>(dev_A, N, NUMELEMPERTHREAD, dev_globalSum, dev_globalSumDiffElemTotalSumSquared);
+		 computeSumDiffElemWithMultipleElemsPerThread<<<dimGrid, dimBlock>>>(dev_A, N, NUMELEMPERTHREAD, dev_globalSum, dev_globalSumDiffElemTotalSumSquared);
 		//Compute Step 3 -- standard deviation with one thread
-		// computeStdDevWithGlobalSumDiffElem<<<1, 1>>>(N, dev_globalSumDiffElemTotalSumSquared,  dev_stddev);	
+		 computeStdDevWithGlobalSumDiffElem<<<1, 1>>>(N, dev_globalSumDiffElemTotalSumSquared,  dev_stddev);	
 
 	}
 	//MODE==4
@@ -418,9 +417,17 @@ return;
 __global__ void computeGlobalSumWithMultipleElemsPerThread(float *A, const unsigned int NUMELEM, const unsigned int ELEMPERTHREAD, float *globalSum) {
 
 //Step 1: Compute the sum of all elements -- assign multiple elements per thread
-
+float sum = 0;
 //write code here
-
+unsigned const int tid = threadIdx.x + (blockIdx.x * blockDim.x );
+for(int i = 0 ; i< ELEMPERTHREAD ; i++ )
+{
+	int id = tid +  i * blockDim.x * gridDim.x;
+	if(id < NUMELEM ){
+		sum+=A[id];	
+	}
+}
+atomicAdd(globalSum,sum);
 return;
 }
 
@@ -432,6 +439,17 @@ __global__ void computeSumDiffElemWithMultipleElemsPerThread(float *A, const uns
 {
 
 //write code here
+unsigned const tid = threadIdx.x + ( blockIdx.x * blockDim.x);
+float diff = 0 ;
+float mean = *globalSum / NUMELEM ;
+for( int i = 0 ; i < ELEMPERTHREAD  ; i++ ) {
+	int id = tid + i * blockDim.x * gridDim.x ;
+	if(id < NUMELEM )  {
+		diff+= pow(A[id] - mean,2);
+	}
+}
+	atomicAdd(globalSumDiffElemTotalSumSquared,diff);
+
 
 return;
 }
