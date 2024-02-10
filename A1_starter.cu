@@ -24,8 +24,8 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 
 
 // You may prefer to move these parameters to your job script
-#define N 100 //Elements in N
-#define MODE 1 //GPU Mode
+#define N 1000000 //Elements in N
+#define MODE 2 //GPU Mode
 #define NUMELEMPERTHREAD 8 //This is r in the assignment instructions for MODE 3
 #define BLOCKSIZE 1024 //GPU CUDA block size for the first two kernels for MODES 2-4.
 
@@ -36,31 +36,31 @@ using namespace std;
 //function prototypes
 
 //CPU function that computes the standard deviation
-double computeStdDevCPU(double * A, const unsigned int NUMELEM);
+float computeStdDevCPU(float * A, const unsigned int NUMELEM);
 
 //GPU kernels:
 //Mode 1:
-__global__ void computeMeanOneThread(double *A, double *mean, const unsigned int NUMELEM);
-__global__ void computeStdDevOneThread(double *A, double *mean, const unsigned int NUMELEM, double *stddev);
+__global__ void computeMeanOneThread(float *A, float *mean, const unsigned int NUMELEM);
+__global__ void computeStdDevOneThread(float *A, float *mean, const unsigned int NUMELEM, float *stddev);
 
 
 //Mode 2:
-__global__ void computeGlobalSumWithOneElemPerThread(double *A, const unsigned int NUMELEM, double *globalSum);
-__global__ void computeSumDiffElemWithOneElemPerThread(double *A, const unsigned int NUMELEM, double *globalSum, double *globalSumDiffElemTotalSumSquared);
+__global__ void computeGlobalSumWithOneElemPerThread(float *A, const unsigned int NUMELEM, float *globalSum);
+__global__ void computeSumDiffElemWithOneElemPerThread(float *A, const unsigned int NUMELEM, float *globalSum, float *globalSumDiffElemTotalSumSquared);
 
 
 //Mode 3:
-__global__ void computeGlobalSumWithMultipleElemsPerThread(double *A, const unsigned int NUMELEM, const unsigned int ELEMPERTHREAD, double *globalSum);
-__global__ void computeSumDiffElemWithMultipleElemsPerThread(double *A, const unsigned int NUMELEM, const unsigned int ELEMPERTHREAD,  double *globalSum, double *globalSumDiffElemTotalSumSquared);
+__global__ void computeGlobalSumWithMultipleElemsPerThread(float *A, const unsigned int NUMELEM, const unsigned int ELEMPERTHREAD, float *globalSum);
+__global__ void computeSumDiffElemWithMultipleElemsPerThread(float *A, const unsigned int NUMELEM, const unsigned int ELEMPERTHREAD,  float *globalSum, float *globalSumDiffElemTotalSumSquared);
 
 
 //Mode 4:
-__global__ void computeGlobalSumWithOneElemPerThreadWithSM(double *A, const unsigned int NUMELEM, double *globalSum);
-__global__ void computeSumDiffElemWithOneElemPerThreadWithSM(double *A, const unsigned int NUMELEM,  double *globalSum, double *globalSumDiffElemTotalSumSquared);
+__global__ void computeGlobalSumWithOneElemPerThreadWithSM(float *A, const unsigned int NUMELEM, float *globalSum);
+__global__ void computeSumDiffElemWithOneElemPerThreadWithSM(float *A, const unsigned int NUMELEM,  float *globalSum, float *globalSumDiffElemTotalSumSquared);
 
 
 //Modes 2, 3, 4
-__global__ void computeStdDevWithGlobalSumDiffElem(const unsigned int NUMELEM, double *globalSumDiffElemTotalSumSquared,  double *stddev);
+__global__ void computeStdDevWithGlobalSumDiffElem(const unsigned int NUMELEM, float *globalSumDiffElemTotalSumSquared,  float *stddev);
 
 int main(int argc, char *argv[])
 {
@@ -74,16 +74,15 @@ int main(int argc, char *argv[])
   	srand(123);  
 
   	//input arrays
-  	double * A;
+  	float * A;
  
-  	A=(double *)malloc(sizeof(double)*N);
+  	A=(float *)malloc(sizeof(float)*N);
  
   	//init input array of FP64 with random numbers between 0 and 1
   	for (unsigned int i=0; i<N; i++){
-  		A[i]=(double)rand()/(double)RAND_MAX;
+  		A[i]=(float)rand()/(float)RAND_MAX;
   	}
-
-	printf("\nMemory requested for 1 array of length N (GiB) %f", (N*sizeof(double)/(1024.0*1024.0*1024.0)));
+	printf("\nMemory requested for 1 array of length N (GiB) %f", (N*sizeof(float)/(1024.0*1024.0*1024.0)));
 
 
 
@@ -92,7 +91,7 @@ int main(int argc, char *argv[])
 	///////////////////////////
 
 	//Compute the standard deviation multiplication on the CPU
-	double stddevCPU = computeStdDevCPU(A, N);
+	float stddevCPU = computeStdDevCPU(A, N);
 
 	printf("\nStd. Dev. CPU: %f", stddevCPU);
 
@@ -101,43 +100,52 @@ int main(int argc, char *argv[])
 	////////////////////////////	
 
 	
-	double tstart=omp_get_wtime();
+	float tstart=omp_get_wtime();
 
-	double * dev_A;
-	double * dev_mean;
-	double * dev_stddev;
+	float * dev_A;
+	float * dev_mean;
+	float * dev_stddev;
 
-	double meanGPU = 0;
+	float meanGPU = 0;
 
 	//the stddev computed on the GPU that will be copied back to the host
-	double stddevGPU; 
+	float stddevGPU ; 
 	
 	//allocate and copy to the device: A, mean
 	//write code here
+	cudaError_t errCode = cudaSuccess;
+	errCode =cudaMalloc((float**)&dev_A,N*sizeof(float));
+	if(errCode != cudaSuccess )
+	{
+		cout << "\nError with Array A" << errCode << "\n";
+	}
+	errCode = cudaMemcpy(dev_A,A,sizeof(float) * N, cudaMemcpyHostToDevice);
+
+	if(errCode != cudaSuccess ) cout << "\nError wth hst" << errCode << "\n";
 	
+	errCode = cudaMemcpy(dev_mean,&meanGPU,sizeof(float),cudaMemcpyHostToDevice);
+	gpuErrchk(cudaMalloc((float**)&dev_stddev, sizeof(float)));	
 
 
-
-	//allocate stddev on device (this is the output)
-	gpuErrchk(cudaMalloc((double**)&dev_stddev, sizeof(double)));	
-
-
-	//allocate the global sum and difference between each element and the mean 
+	//allocate the global sum and difference between ealement and the mean 
 	//for Modes 2-3 (and 4 if applicable):
-	double * dev_globalSum;
-	double * dev_globalSumDiffElemTotalSumSquared;
-	double globalSum=0;
-	double * globalSumDiffElemTotalSumSquared=0;
+	float * dev_globalSum;
+	float * dev_globalSumDiffElemTotalSumSquared;
+	float globalSum=0;
+	float globalSumDiffElemTotalSumSquared = 0;
 	//Modes 2-4
 	if(MODE!=1)
 	{
 		//write code here
-
+		gpuErrchk(cudaMalloc((float **)&dev_globalSum,sizeof(float))); 
+		gpuErrchk(cudaMalloc((float **)&dev_globalSumDiffElemTotalSumSquared,sizeof(float))); 
 		//allocate and copy to GPU
-	}
+		gpuErrchk(cudaMemcpy(dev_globalSum,&globalSum,sizeof(float),cudaMemcpyHostToDevice));  	
+		gpuErrchk(cudaMemcpy(dev_globalSumDiffElemTotalSumSquared,&globalSumDiffElemTotalSumSquared,sizeof(float),cudaMemcpyHostToDevice));	
+	printf("\n this is dev global sum = %f,%f,%f",dev_stddev,dev_globalSumDiffElemTotalSumSquared,dev_globalSum);
+}
 
 	
-
 	//execute kernels based on MODE
 	//MODE==1
 	//One thread on the GPU does all work
@@ -162,17 +170,19 @@ int main(int argc, char *argv[])
 		
 		//Write code here
 		//Uncomment and update code below
-		//unsigned int numBlocks = 0;
+		unsigned int numBlocks = (N + BLOCKSIZE - 1) / BLOCKSIZE ;
 
-		// dim3 dimGrid(numBlocks, 1, 1);
-		// dim3 dimBlock(BLOCKDIM, 1, 1);
+		 dim3 dimGrid(numBlocks, 1, 1);
+		 dim3 dimBlock(BLOCKDIM, 1, 1);
 
 		//Compute Step 1 -- sum of all elements
-		// computeGlobalSumWithOneElemPerThread<<<dimGrid, dimBlock>>>(dev_A, N, dev_globalSum);
-		//Compute Step 2 -- compute mean, and then the sum of differences between each element and the mean
-		// computeSumDiffElemWithOneElemPerThread<<<dimGrid, dimBlock>>>(dev_A, N, dev_globalSum, dev_globalSumDiffElemTotalSumSquared);
-		//Compute Step 3 -- standard deviation with one thread
-		// computeStdDevWithGlobalSumDiffElem<<<1, 1>>>(N, dev_globalSumDiffElemTotalSumSquared,  dev_stddev);
+		 computeGlobalSumWithOneElemPerThread<<<dimGrid, dimBlock>>>(dev_A, N, dev_globalSum);
+	cudaDeviceSynchronize();	
+	//Compute Step 2 -- compute mean, and then the sum of differences between each element and the mean
+		 computeSumDiffElemWithOneElemPerThread<<<dimGrid, dimBlock>>>(dev_A, N, dev_globalSum, dev_globalSumDiffElemTotalSumSquared);
+	cudaDeviceSynchronize();	
+	//Compute Step 3 -- standard deviation with one thread
+		 computeStdDevWithGlobalSumDiffElem<<<1, 1>>>(N, dev_globalSumDiffElemTotalSumSquared,  dev_stddev);
 	}
 	//MODE==3
 	//Multiple elements are computed per thread
@@ -229,17 +239,17 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 	
-
+	cudaDeviceSynchronize(); 
 	//check kernel errors
 	gpuErrchk(cudaGetLastError());
 
 	//end execute kernel
 
 	//Copy stddev from the GPU to the host
-	
 	//write code here
-	
-	double tend=omp_get_wtime();
+	errCode = cudaMemcpy(&stddevGPU,dev_stddev,sizeof(float),cudaMemcpyDeviceToHost);
+	if(errCode != cudaSuccess ) cout << "gpu not get stddev: " << errCode << "\n";	
+	float tend=omp_get_wtime();
 	
 	printf("\nStd. Dev. GPU: %f", stddevGPU);
 	printf("\nTime to compute Std. Dev. on the GPU: %f", tend - tstart);
@@ -251,17 +261,17 @@ int main(int argc, char *argv[])
 	//free memory
 
 	//Uncomment and update as needed
-	// free(A);
+	 free(A);
   	
-  	// cudaFree(dev_A);
-  	// cudaFree(dev_mean);
-  	// cudaFree(dev_stddev);
+  	 cudaFree(dev_A);
+  	 cudaFree(dev_mean);
+  	 cudaFree(dev_stddev);
 
-  	// if(MODE!=1)
-  	// {
-  	// 	cudaFree(dev_globalSum);
-	// 	cudaFree(dev_globalSumDiffElemTotalSumSquared);
-  	// }
+  	 if(MODE!=1)
+  	 {
+  	 	cudaFree(dev_globalSum);
+	 	cudaFree(dev_globalSumDiffElemTotalSumSquared);
+  	 }
 
 	printf("\n\n");
 
@@ -279,25 +289,34 @@ int main(int argc, char *argv[])
 ///////////////////////////////////
 
 
-double computeStdDevCPU(double * A, const unsigned int NUMELEM)
+float computeStdDevCPU(float * A, const unsigned int NUMELEM)
 {
 
 	//write code here (below)
 
 	
-	double tstart=omp_get_wtime();
+	float tstart=omp_get_wtime();
 
-	double stddev=0;
+	float stddev=0;
+	float sum = 0;
 	//Step 1: Compute the mean
-
-
+	for(int i = 0 ; i < NUMELEM ; i++ )
+	{
+		sum+=A[i]; 
+	}
+	sum = sum/NUMELEM;
+	float diff = 0 ;
 	//Step 2: Compute Sum of difference between each element and the mean
-	
+	for(int i = 0 ; i < NUMELEM ; i++ )
+	{
+		diff += pow(A[i] - sum , 2 );
 
+	}	
+	diff = diff / NUMELEM ;
 	//Step 3: Compute std dev
-	
+	stddev = sqrt(diff);	
 
-	double tend=omp_get_wtime();
+	float tend=omp_get_wtime();
 	printf("\nTime to compute Std. Dev. on the CPU: %f", tend - tstart);
 
 	return stddev;
@@ -311,26 +330,34 @@ double computeStdDevCPU(double * A, const unsigned int NUMELEM)
 //GPU Mode 1
 ///////////////////////////////////
 
-__global__ void computeMeanOneThread(double *A, double *mean, const unsigned int NUMELEM) {
+__global__ void computeMeanOneThread(float *A, float *mean, const unsigned int NUMELEM) {
 
 //Step 1: Compute the mean
-
-//write code here
-
-
-
+for(int i = 0 ; i < NUMELEM ; i ++ ) {
+	atomicAdd(mean,A[i]);
+}
+	 *mean /= NUMELEM;
 return;
 }
 
-__global__ void computeStdDevOneThread(double *A, double *mean, const unsigned int NUMELEM, double *stddev) {
+__global__ void computeStdDevOneThread(float *A, float *mean, const unsigned int NUMELEM, float *stddev) {
 
 //Step 2: Compute Sum of difference between each element and the mean
+float sqr = 0 ;
 
 //write code here
+for(int i = 0 ; i < NUMELEM ; i++) {
 
+	sqr=pow(A[i] - *mean,2) ;
+	atomicAdd(stddev,sqr);
+}
 //Step 3: Compute std dev
-
 //write code here
+
+
+
+	*stddev /= NUMELEM;
+	*stddev  = sqrt(*stddev);
 
 return;
 }
@@ -345,28 +372,36 @@ return;
 //GPU Mode 2
 ///////////////////////////////////
 
-__global__ void computeGlobalSumWithOneElemPerThread(double *A, const unsigned int NUMELEM, double *globalSum) {
+__global__ void computeGlobalSumWithOneElemPerThread(float *A, const unsigned int NUMELEM, float *globalSum) {
 
 //Step 1: Compute the sum of all elements -- assign multiple elements per thread
 
 //write code here
-
+unsigned const int tid = threadIdx.x + (blockIdx.x * blockDim.x);
+if(tid < NUMELEM ) {
+	atomicAdd(globalSum,A[tid]);
+}
 return;
 }
 
-__global__ void computeSumDiffElemWithOneElemPerThread(double *A, const unsigned int NUMELEM,  double *globalSum, double *globalSumDiffElemTotalSumSquared)
+__global__ void computeSumDiffElemWithOneElemPerThread(float *A, const unsigned int NUMELEM,  float *globalSum, float *globalSumDiffElemTotalSumSquared)
 {
 
 //write code here
-
+unsigned const int tid = threadIdx.x + (blockIdx.x * blockDim.x);
+if(tid < NUMELEM ) {
+	float mean = *globalSum/ NUMELEM ;
+	float sqr = pow(A[tid] - mean,2);
+	atomicAdd(globalSumDiffElemTotalSumSquared,sqr);
+}
 return;
 }
 
-__global__ void computeStdDevWithGlobalSumDiffElem(const unsigned int NUMELEM, double *globalSumDiffElemTotalSumSquared,  double *stddev)
+__global__ void computeStdDevWithGlobalSumDiffElem(const unsigned int NUMELEM, float *globalSumDiffElemTotalSumSquared,  float *stddev)
 {
-
 //write code here
-
+	float diff = *globalSumDiffElemTotalSumSquared / NUMELEM ;
+	*stddev = sqrt(diff);
 return;
 }
 
@@ -380,7 +415,7 @@ return;
 //GPU Mode 3
 ///////////////////////////////////
 
-__global__ void computeGlobalSumWithMultipleElemsPerThread(double *A, const unsigned int NUMELEM, const unsigned int ELEMPERTHREAD, double *globalSum) {
+__global__ void computeGlobalSumWithMultipleElemsPerThread(float *A, const unsigned int NUMELEM, const unsigned int ELEMPERTHREAD, float *globalSum) {
 
 //Step 1: Compute the sum of all elements -- assign multiple elements per thread
 
@@ -393,7 +428,7 @@ return;
 
 
 
-__global__ void computeSumDiffElemWithMultipleElemsPerThread(double *A, const unsigned int NUMELEM, const unsigned int ELEMPERTHREAD,  double *globalSum, double *globalSumDiffElemTotalSumSquared)
+__global__ void computeSumDiffElemWithMultipleElemsPerThread(float *A, const unsigned int NUMELEM, const unsigned int ELEMPERTHREAD,  float *globalSum, float *globalSumDiffElemTotalSumSquared)
 {
 
 //write code here
@@ -415,7 +450,7 @@ return;
 
 
 
-__global__ void computeGlobalSumWithOneElemPerThreadWithSM(double *A, const unsigned int NUMELEM, double *globalSum) {
+__global__ void computeGlobalSumWithOneElemPerThreadWithSM(float *A, const unsigned int NUMELEM, float *globalSum) {
 
 	//Step 1: Compute the sum of all elements
 	
@@ -424,7 +459,7 @@ __global__ void computeGlobalSumWithOneElemPerThreadWithSM(double *A, const unsi
 	return;
 }
 
-__global__ void computeSumDiffElemWithOneElemPerThreadWithSM(double *A, const unsigned int NUMELEM,  double *globalSum, double *globalSumDiffElemTotalSumSquared)
+__global__ void computeSumDiffElemWithOneElemPerThreadWithSM(float *A, const unsigned int NUMELEM,  float *globalSum, float *globalSumDiffElemTotalSumSquared)
 {
 
 	//write code here
