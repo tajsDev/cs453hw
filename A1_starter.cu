@@ -24,8 +24,8 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 
 
 // You may prefer to move these parameters to your job script
-#define N 100 //Elements in N
-#define MODE 1 //GPU Mode
+#define N 1000000 //Elements in N
+#define MODE 4 //GPU Mode
 #define NUMELEMPERTHREAD 8 //This is r in the assignment instructions for MODE 3
 #define BLOCKSIZE 1024 //GPU CUDA block size for the first two kernels for MODES 2-4.
 
@@ -219,17 +219,17 @@ int main(int argc, char *argv[])
 
 		//Write code here
 		//Uncomment and update code below
-		//unsigned int numBlocks = 0;
+		unsigned int numBlocks = (N + BLOCKSIZE - 1)/BLOCKSIZE;
 
-		// dim3 dimGrid(numBlocks, 1, 1);
-		// dim3 dimBlock(BLOCKDIM, 1, 1);
+		 dim3 dimGrid(numBlocks, 1, 1);
+		 dim3 dimBlock(BLOCKDIM, 1, 1);
 
 		//Compute Step 1 -- sum of all elements
-		// computeGlobalSumWithOneElemPerThreadWithSM<<<dimGrid, dimBlock>>>(dev_A, N, dev_globalSum);
+		 computeGlobalSumWithOneElemPerThreadWithSM<<<dimGrid, dimBlock>>>(dev_A, N, dev_globalSum);
 		//Compute Step 2 -- compute mean, and then the sum of differences between each element and the mean
-		// computeSumDiffElemWithOneElemPerThreadWithSM<<<dimGrid, dimBlock>>>(dev_A, N, dev_globalSum, dev_globalSumDiffElemTotalSumSquared);
+		 computeSumDiffElemWithOneElemPerThreadWithSM<<<dimGrid, dimBlock>>>(dev_A, N, dev_globalSum, dev_globalSumDiffElemTotalSumSquared);
 		//Compute Step 3 -- standard deviation with one thread
-		// computeStdDevWithGlobalSumDiffElem<<<1, 1>>>(N, dev_globalSumDiffElemTotalSumSquared,  dev_stddev);
+		 computeStdDevWithGlobalSumDiffElem<<<1, 1>>>(N, dev_globalSumDiffElemTotalSumSquared,  dev_stddev);
 
 	}
 	else
@@ -473,6 +473,23 @@ __global__ void computeGlobalSumWithOneElemPerThreadWithSM(float *A, const unsig
 	//Step 1: Compute the sum of all elements
 	
 	//write code here
+	unsigned const int tid = threadIdx.x + ( blockIdx.x * blockDim.x );
+
+	__shared__ float sum ;
+	if(threadIdx.x ==  0 ) {
+		sum = 0;
+	}
+	__syncthreads();
+
+	if(tid < NUMELEM ) { 
+		atomicAdd(&sum , A[tid] );
+	}
+	
+	__syncthreads();
+
+	if(threadIdx.x == 0 ) {
+		atomicAdd(globalSum,sum);
+	}
 
 	return;
 }
@@ -481,7 +498,29 @@ __global__ void computeSumDiffElemWithOneElemPerThreadWithSM(float *A, const uns
 {
 
 	//write code here
+	unsigned const int tid = threadIdx.x + ( blockIdx.x * blockDim.x ) ;
+	
+	__shared__  float mean ;
 
+	__shared__ float diff ;
+
+	if(threadIdx.x == 0 ) {
+		diff = 0 ;
+		mean = *globalSum / NUMELEM ;
+	}
+
+	__syncthreads();
+
+
+	if(tid < NUMELEM ) {
+		atomicAdd(&diff,pow(A[tid]-mean,2));
+	}
+
+	__syncthreads();
+
+	if(threadIdx.x == 0 ) { 
+		atomicAdd(globalSumDiffElemTotalSumSquared,diff);
+	}
 	return;
 }
 
