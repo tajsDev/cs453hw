@@ -24,8 +24,8 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 
 
 // You may prefer to move these parameters to your job script
-#define N 1000000 //Elements in N
-#define MODE 4 //GPU Mode
+#define N 1000000  //Elements in N
+#define MODE 3 //GPU Mode
 #define NUMELEMPERTHREAD 8 //This is r in the assignment instructions for MODE 3
 #define BLOCKSIZE 1024 //GPU CUDA block size for the first two kernels for MODES 2-4.
 
@@ -169,8 +169,8 @@ int main(int argc, char *argv[])
 		
 		//Write code here
 		//Uncomment and update code below
-		unsigned int numBlocks = (N + BLOCKSIZE - 1) / BLOCKSIZE ;
-
+		unsigned const int numBlocks = ceil(N *1.0 / BLOCKSIZE) ;
+		printf("\n %d blocks",numBlocks);
 		 dim3 dimGrid(numBlocks, 1, 1);
 		 dim3 dimBlock(BLOCKDIM, 1, 1);
 
@@ -193,8 +193,8 @@ int main(int argc, char *argv[])
 		
 		//Write code here
 		//Uncomment and update code below
-		unsigned int numBlocks =  (N + (BLOCKSIZE  * NUMELEMPERTHREAD) - 1) / (BLOCKSIZE * NUMELEMPERTHREAD); 
- 
+		unsigned int numBlocks = ceil(N* 1.0/NUMELEMPERTHREAD/(BLOCKSIZE)); 
+		printf("\n %d num of blocks ",numBlocks); 
 		 dim3 dimGrid(numBlocks, 1, 1);
 		 dim3 dimBlock(BLOCKDIM, 1, 1);
 
@@ -219,7 +219,7 @@ int main(int argc, char *argv[])
 
 		//Write code here
 		//Uncomment and update code below
-		unsigned int numBlocks = (N + BLOCKSIZE - 1)/BLOCKSIZE;
+		unsigned const int numBlocks =ceil(N * 1.0/BLOCKSIZE);
 
 		 dim3 dimGrid(numBlocks, 1, 1);
 		 dim3 dimBlock(BLOCKDIM, 1, 1);
