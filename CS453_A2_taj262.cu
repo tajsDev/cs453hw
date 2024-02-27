@@ -26,12 +26,12 @@
 
 
 //You may want to move these to your job script
-#define N 10  //max 2048 (for demonstrations in class), use powers of 2 for division 
+#define N 2048 //max 2048 (for demonstrations in class), use powers of 2 for division 
 				//into shared memory tiles for MODE==4
 
 #define MODE 5 //see implementations above for associated modes
 
-#define BLOCKDIMTILE 16
+#define BLOCKDIMTILE 32     
 
 
 //Error checking GPU calls
@@ -113,12 +113,12 @@ int main(int argc, char *argv[])
 	///////////////////////////
 
 	printf("\nCommented sequential CPU execution");
-	 computeMatrixCPU(A, B, C_CPU, N);
+	//computeMatrixCPU(A, B, C_CPU, N);
 	
 	//print matrix if N is <= 10x10
-	printMatrixIfSmall(C_CPU, N, 0);
+	//	printMatrixIfSmall(C_CPU, N, 0);
 	
-
+	
 	/////////////////////////////
 	//GPU
 	////////////////////////////	
@@ -263,7 +263,8 @@ int main(int argc, char *argv[])
 	
 	printf("\nTotal time GPU (s): %f",tend-tstart);
 	
-
+	printf("\nThis is for the sum of the CPU");
+	//outputSumElems(C_CPU,N*N);
 	//print sum of elements in GPU array C
 	outputSumElems(C, N*N);
 
@@ -449,10 +450,10 @@ __global__ void matrixMultiOneElemPerThreadTransposedMatrixB(float *A, float *B,
 
 //write code here (copy/paste from MODE==1 to get started)
 const unsigned int row  = threadIdx.x + ( blockIdx.x * blockDim.x);
-
-if(row < NUMELEM ) {
+const unsigned int col = threadIdx.y + ( blockIdx.y * blockDim.y);
+if(row < NUMELEM && col < NUMELEM  ) {
 	for(int k = 0 ; k < NUMELEM ; k++ ) {
- 	C[row * NUMELEM  + row ]+= A[row * NUMELEM + k] * B[k * NUMELEM + row];
+ 	C[row * NUMELEM  + col ]+= A[row * NUMELEM + k] * B[k + col * NUMELEM ];
 	}
 } 
 return;
@@ -466,25 +467,26 @@ __global__ void matrixMultiOneElemPerThreadSharedMemoryTileTransposedB(float *A,
 
 //write code here (copy/paste from MODE==4 to get started)
 const unsigned int row = threadIdx.x + (blockIdx.x * blockDim.x);
+const unsigned int col = threadIdx.y + (blockIdx.y * blockDim.y);
 float sum = 0 ;
 
 __shared__ float tileA[BLOCKDIMTILE][BLOCKDIMTILE];
 __shared__ float tileB[BLOCKDIMTILE][BLOCKDIMTILE];
 
 for(int phase = 0; phase < NUMELEM ; phase+=BLOCKDIMTILE ) {
-	tileA[threadIdx.x][threadIdx.x] = A[row*NUMELEM+phase+threadIdx.x];
-	tileB[threadIdx.x][threadIdx.x] = B[row*NUMELEM+phase+threadIdx.x];
+	tileA[threadIdx.x][threadIdx.y] = A[row*NUMELEM+phase+threadIdx.y];
+	tileB[threadIdx.x][threadIdx.y] = B[col*NUMELEM+phase+threadIdx.x];
 
 	__syncthreads();
 	for(int k = 0 ; k < BLOCKDIMTILE; k++ ) {
 
-		sum+=tileA[threadIdx.x][k]*tileB[k][threadIdx.x];
+		sum+=tileA[threadIdx.x][k]*tileB[k][threadIdx.y];
 	}
 
 
 	__syncthreads();
 } 
-	C[row*NUMELEM+row] = sum; 
+	C[row*NUMELEM+col] = sum; 
 return;
 }
 
