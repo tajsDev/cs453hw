@@ -4,4 +4,4 @@
 #Example compilation for A100
 
 all:
-	nvcc -O3 -arch=compute_80 -code=sm_80 -lcuda -lineinfo -Xcompiler -fopenmp CS453_A2_taj262.cu -o CS453_A2_taj262
+	nvcc -O3 -arch=compute_80 -code=sm_80 -lcuda -lineinfo -Xcompiler -fopenmp cs453_a3_taj262.cu -o cs453_a3_taj262
