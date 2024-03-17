@@ -23,10 +23,10 @@ __global__ void convolutionGlobalAGlobalF(float *A, float *F, float *B, const un
 
 //thread ID corresponding to output element in B
 //Be sure to uncomment (currently commented to avoid compiler warnings)	
- int tid = threadIdx.x + (blockIdx.x*blockDim.x); 
+unsigned const int tid = threadIdx.x + (blockIdx.x*blockDim.x); 
   float localTotal = 0 ;
   if(tid < NUMELEM ) {
-    for(unsigned int j=0;j<2*r+2; j ++ ) {
+    for(unsigned int j=0;j<2*r+1; j ++ ) {
         unsigned int idxA = tid+j-r;
       if(idxA >=0 && idxA < NUMELEM ) {
         localTotal+=A[idxA]*F[j];
@@ -42,7 +42,7 @@ __global__ void convolutionGlobalASharedF(float *A, float *F, float *B, const un
 
 //thread ID corresponding to output element in B
 //Be sure to uncomment (currently commented to avoid compiler warnings)	
- int tid = threadIdx.x + (blockIdx.x*blockDim.x); //thread ID
+ unsigned const int tid = threadIdx.x + (blockIdx.x*blockDim.x); //thread ID
 __shared__ float  sharedFilter[RNELEMTOTAL];
   float localTotal = 0 ;
 
@@ -54,7 +54,7 @@ __shared__ float  sharedFilter[RNELEMTOTAL];
 
   
   if(tid < NUMELEM ) {
-    for(unsigned int j=0;j<2*r+2; j ++ ) {
+    for(unsigned int j=0;j<2*r+1; j ++ ) {
         unsigned int idxA = tid+j-r;
       if(idxA >=0 && idxA < NUMELEM ) {
         localTotal+=A[idxA]*sharedFilter[j];
@@ -73,12 +73,12 @@ __global__ void convolutionGlobalARegistersF(float *A, float *F, float *B, const
 
 //thread ID corresponding to output element in B
 //Be sure to uncomment (currently commented to avoid compiler warnings)	
- int tid = threadIdx.x + (blockIdx.x*blockDim.x); //thread ID
+ unsigned const int tid = threadIdx.x + (blockIdx.x*blockDim.x); //thread ID
   if( tid < NUMELEM ) {
     float localTotal = 0 ;
-    float * localF ;
+    float localF[RNELEMTOTAL] ;
     pageFIntoRegisters(F,localF);
-    for(unsigned int j=0;j<2*r+2; j ++ ) {
+    for(unsigned int j=0;j<2*r+1; j ++ ) {
         unsigned int idxA = tid+j-r;
       if(idxA >=0 && idxA < NUMELEM ) {
         localTotal+=A[idxA]*localF[j];
@@ -98,12 +98,12 @@ __global__ void convolutionGlobalAConstantF(float *A, float *B, const unsigned i
 
 //thread ID corresponding to output element in B
 //Be sure to uncomment (currently commented to avoid compiler warnings)	
- int tid = threadIdx.x + (blockIdx.x*blockDim.x); //thread ID
+unsigned const int tid = threadIdx.x + (blockIdx.x*blockDim.x); //thread ID
 
 //Write code here
   if( tid < NUMELEM ) {
     float localTotal = 0 ;
-    for(unsigned int j=0;j<2*r+2; j ++ ) {
+    for(unsigned int j=0;j<2*r+1; j ++ ) {
         unsigned int idxA = tid+j-r;
       if(idxA >=0 && idxA < NUMELEM ) {
         localTotal+=A[idxA]*FGLOBAL[j];
@@ -133,27 +133,40 @@ __global__ void convolutionSharedAGlobalF(float *A, float *F, float *B, const un
 
 //thread ID corresponding to output element in B
 //Be sure to uncomment (currently commented to avoid compiler warnings)	
-unsigned int tid = threadIdx.x + (blockIdx.x*blockDim.x); //thread ID
-__shared__ float * sharedA[TILESIZE + 2*R];
+  int tid = threadIdx.x + (blockIdx.x*blockDim.x); //thread ID
+__shared__ float sharedA[TILESIZE + 2*R];
 //Write code here
 
-  if(tid < NUMELEM ) { 
-      sharedA[threadIdx.x] = A[tid];
+    if (tid < NUMELEM) { // Load data into shared memory
+       sharedA[threadIdx.x] = A[tid];
+	if(threadIdx.x < 2 * R ) {
+		sharedA[threadIdx.x + blockDim.x] = A[tid + blockDim.x];
+	} 
+        
     }
-
   __syncthreads();
 
   float localTotal = 0 ;
+if(MODE == 5 ) {
   if(tid < NUMELEM ) {
-    for(unsigned int j=0;j<2*r+2; j ++ ) {
-        unsigned int idxA = threadIdx.x+j-r;
-      if(idxA >=0 ) {
-        localTotal+=sharedA[idxA]*F[j];
-      }
+    for(unsigned int j=0;j<2*r+1; j ++ ) {
+        unsigned int idxA = threadIdx.x+j;
+        localTotal = localTotal + sharedA[idxA]*F[j];
+    }
+    B[tid] = localTotal ; 
+  }
+}
+else {
+ if(tid < NUMELEM ) {
+    for(unsigned int j=0;j<2*r+1; j ++ ) {
+        unsigned int idxA = threadIdx.x+j;
+        localTotal = localTotal + A[idxA]*F[j];
     }
     B[tid] = localTotal ; 
   }
 
+
+}
 return;
 }
 
@@ -163,32 +176,35 @@ __global__ void convolutionSharedASharedF(float *A, float *F, float *B, const un
 
 //thread ID corresponding to output element in B
 //Be sure to uncomment (currently commented to avoid compiler warnings)	
-unsigned int tid = threadIdx.x + (blockIdx.x*blockDim.x); //thread ID
-__shared__ float * sharedA[TILESIZE + 2*R];
+unsigned const int tid = threadIdx.x + (blockIdx.x*blockDim.x); //thread ID
+__shared__ float sharedA[TILESIZE + 2*R];
 //Write code here
 
-  if(tid < NUMELEM ) { 
-      sharedA[threadIdx.x] = A[tid];
+
+__shared__ float sharedFilter[RNELEMTOTAL];
+  float localTotal = 0 ;
+
+    if (tid < NUMELEM) { // Load data into shared memory
+       sharedA[threadIdx.x] = A[tid];
+	if(threadIdx.x < 2 * R ) {
+		sharedA[threadIdx.x + blockDim.x] = A[tid + blockDim.x];
+	} 
+        
     }
 
   __syncthreads();
-
-__shared__ float  sharedFilter[RNELEMTOTAL];
-  float localTotal = 0 ;
 
   if(threadIdx.x < RNELEMTOTAL ) { 
       sharedFilter[threadIdx.x] = F[threadIdx.x];
     }
 
-  __syncthreads();
+   __syncthreads();
 
   
   if(tid < NUMELEM ) {
-    for(unsigned int j=0;j<2*r+2; j ++ ) {
-        unsigned int idxA = threadIdx.x+j-r;
-      if(idxA >=0  ) {
+    for(unsigned int j=0;j<2*r+1; j ++ ) {
+        unsigned int idxA = threadIdx.x+j;
         localTotal+=sharedA[idxA]*sharedFilter[j];
-      }
     }
     B[tid] = localTotal ; 
   }
@@ -202,25 +218,27 @@ __global__ void convolutionSharedARegistersF(float *A, float *F, float *B, const
 
 //thread ID corresponding to output element in B
 //Be sure to uncomment (currently commented to avoid compiler warnings)	
-unsigned int tid = threadIdx.x + (blockIdx.x*blockDim.x); //thread ID
-__shared__ float * sharedA[TILESIZE + 2*R];
+ unsigned const int tid = threadIdx.x + (blockIdx.x*blockDim.x); //thread ID
+__shared__ float sharedA[TILESIZE + 2*R];
 //Write code here
-
-  if(tid < NUMELEM ) { 
-      sharedA[threadIdx.x] = A[tid];
+float localF[RNELEMTOTAL];
+float localTotal = 0 ;
+    if (tid < NUMELEM) { // Load data into shared memory
+       sharedA[threadIdx.x] = A[tid];
+	if(threadIdx.x < 2 * R ) {
+		sharedA[threadIdx.x + blockDim.x] = A[tid + blockDim.x];
+	} 
+        
     }
+
 
   __syncthreads();
 
   if( tid < NUMELEM ) {
-    float localTotal = 0 ;
-    float * localF ;
     pageFIntoRegisters(F,localF);
-    for(unsigned int j=0;j<2*r+2; j ++ ) {
-        unsigned int idxA = threadIdx.x+j-r;
-      if(idxA >=0 && idxA < NUMELEM ) {
+    for(unsigned int j=0;j<2*r+1; j ++ ) {
+        unsigned int idxA = threadIdx.x+j;
         localTotal+=sharedA[idxA]*localF[j];
-      }
     }
     B[tid] = localTotal ; 
 
@@ -236,27 +254,29 @@ __global__ void convolutionSharedAConstantF(float *A, float *B, const unsigned i
 //thread ID corresponding to output element in B
 //Be sure to uncomment (currently commented to avoid compiler warnings)	
 
-unsigned int tid = threadIdx.x + (blockIdx.x*blockDim.x); //thread ID
-__shared__ float * sharedA[TILESIZE + 2*R];
-//Write code here
-
-  if(tid < NUMELEM ) { 
-      sharedA[threadIdx.x] = A[tid];
+  unsigned const int tid = threadIdx.x + (blockIdx.x * blockDim.x); // Thread ID
+    __shared__ float sharedA[TILESIZE + 2 * R];
+	float localTotal = 0 ;
+    if (tid < NUMELEM) { // Load data into shared memory
+       sharedA[threadIdx.x] = A[tid];
+	if(threadIdx.x < 2 * R ) {
+		sharedA[threadIdx.x + blockDim.x] = A[tid + blockDim.x];
+	} 
+        
     }
 
-  __syncthreads();
+    __syncthreads();
 
-  if( tid < NUMELEM ) {
-    float localTotal = 0 ;
-    for(unsigned int j=0;j<2*r+2; j ++ ) {
-        unsigned int idxA = threadIdx.x+j-r;
-      if(idxA >=0 && idxA < NUMELEM ) {
-        localTotal+=sharedA[idxA]*FGLOBAL[j];
-      }
-    }
-    B[tid] = localTotal ; 
-
-  }
+ if( tid < NUMELEM ) {
+     for(unsigned int j=0;j<2*r+1; j ++ ) {
+         unsigned int idxA = threadIdx.x+j;
+       
+         localTotal+=sharedA[idxA]*FGLOBAL[j];
+       
+     }
+     B[tid] = localTotal ;
+ 
+   }
 
 return;
 }

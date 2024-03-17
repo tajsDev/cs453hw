@@ -107,10 +107,10 @@ int main(int argc, char *argv[])
 	///////////////////////////
 
 	//Compute the matrix multiplication on the CPU
-	computeConvolutionCPU(A, F, B_CPU, R, N);
+	//computeConvolutionCPU(A, F, B_CPU, R, N);
 	
 	//print matrix if N is <=128
-	printArrayIfSmall(B_CPU, N, 0);
+	//printArrayIfSmall(B_CPU, N, 0);
 
 
 
@@ -365,8 +365,8 @@ void computeConvolutionCPU(float * A, float * F, float * B, const unsigned int r
   for(unsigned int i = 0 ; i < NUMELEM ; i ++ ) {
       float localTotal = 0 ;
       for(unsigned int j = 0 ; j <2* r+1 ; j ++ ) {
-        unsigned int idx = i+j-r
-        if(idk > 0 && idx < NUMELEM ) {
+        unsigned int idx = i+j-r;
+        if(idx > 0 && idx < NUMELEM ) {
         localTotal+=A[idx] * F[j];
       }
     }
