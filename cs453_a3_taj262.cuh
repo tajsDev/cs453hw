@@ -46,11 +46,18 @@ __global__ void convolutionGlobalASharedF(float *A, float *F, float *B, const un
 __shared__ float  sharedFilter[RNELEMTOTAL];
   float localTotal = 0 ;
 
-  if(threadIdx.x < RNELEMTOTAL ) { 
-      sharedFilter[threadIdx.x] = F[threadIdx.x];
-    }
+for (unsigned int i=0; i<RNELEMTOTAL; i+=blockDim.x)
+{
 
-  __syncthreads();
+	unsigned int idx = i+threadIdx.x;
+	//ensure that we don't exceed the array bounds
+	if(idx<RNELEMTOTAL)
+	{
+	sharedFilter[idx] = F[idx];
+	}
+}
+ __syncthreads();
+
 
   
   if(tid < NUMELEM ) {
@@ -131,12 +138,10 @@ return;
 //MODE==5
 __global__ void convolutionSharedAGlobalF(float *A, float *F, float *B, const unsigned int r,  const unsigned int NUMELEM) {
 
-//thread ID corresponding to output element in B
-//Be sure to uncomment (currently commented to avoid compiler warnings)	
-  int tid = threadIdx.x + (blockIdx.x*blockDim.x); //thread ID
-__shared__ float sharedA[TILESIZE + 2*R];
-//Write code here
 
+unsigned  int tid = threadIdx.x + (blockIdx.x * blockDim.x); //thread ID
+  __shared__ float sharedA[TILESIZE + 2 * R];
+ 	float localTotal = 0 ;
     if (tid < NUMELEM) { // Load data into shared memory
        sharedA[threadIdx.x] = A[tid];
 	if(threadIdx.x < 2 * R ) {
@@ -144,27 +149,16 @@ __shared__ float sharedA[TILESIZE + 2*R];
 	} 
         
     }
+
+
   __syncthreads();
 
-  float localTotal = 0 ;
-if(MODE == 5 ) {
-  if(tid < NUMELEM ) {
+  if( tid < NUMELEM ) {
     for(unsigned int j=0;j<2*r+1; j ++ ) {
         unsigned int idxA = threadIdx.x+j;
-        localTotal = localTotal + sharedA[idxA]*F[j];
+        localTotal+=sharedA[idxA]*F[j];
     }
     B[tid] = localTotal ; 
-  }
-}
-else {
- if(tid < NUMELEM ) {
-    for(unsigned int j=0;j<2*r+1; j ++ ) {
-        unsigned int idxA = threadIdx.x+j;
-        localTotal = localTotal + A[idxA]*F[j];
-    }
-    B[tid] = localTotal ; 
-  }
-
 
 }
 return;
@@ -184,6 +178,21 @@ __shared__ float sharedA[TILESIZE + 2*R];
 __shared__ float sharedFilter[RNELEMTOTAL];
   float localTotal = 0 ;
 
+//Note to class: Updated this on March 18, 2024
+//Page the filter (F) into shared memory
+//If RNELEMTOTAL > the block size (blockDim.x) then we need several rounds of paging into shared memory
+for (unsigned int i=0; i<RNELEMTOTAL; i+=blockDim.x)
+{
+
+	unsigned int idx = i+threadIdx.x;
+	//ensure that we don't exceed the array bounds
+	if(idx<RNELEMTOTAL)
+	{
+	sharedFilter[idx] = F[idx];
+	}
+}
+ __syncthreads();
+
     if (tid < NUMELEM) { // Load data into shared memory
        sharedA[threadIdx.x] = A[tid];
 	if(threadIdx.x < 2 * R ) {
@@ -193,14 +202,8 @@ __shared__ float sharedFilter[RNELEMTOTAL];
     }
 
   __syncthreads();
-
-  if(threadIdx.x < RNELEMTOTAL ) { 
-      sharedFilter[threadIdx.x] = F[threadIdx.x];
-    }
-
-   __syncthreads();
-
-  
+int max = NUMELEM / blockDim.x ;
+if(blockIdx.x != 0  && blockIdx.x != max ) {  
   if(tid < NUMELEM ) {
     for(unsigned int j=0;j<2*r+1; j ++ ) {
         unsigned int idxA = threadIdx.x+j;
@@ -208,7 +211,7 @@ __shared__ float sharedFilter[RNELEMTOTAL];
     }
     B[tid] = localTotal ; 
   }
-
+}
 
 return;
 }
@@ -257,13 +260,16 @@ __global__ void convolutionSharedAConstantF(float *A, float *B, const unsigned i
   unsigned const int tid = threadIdx.x + (blockIdx.x * blockDim.x); // Thread ID
     __shared__ float sharedA[TILESIZE + 2 * R];
 	float localTotal = 0 ;
-    if (tid < NUMELEM) { // Load data into shared memory
+      // Load main data into shared memory
+   
+if (tid < NUMELEM) { // Load data into shared memory
        sharedA[threadIdx.x] = A[tid];
 	if(threadIdx.x < 2 * R ) {
 		sharedA[threadIdx.x + blockDim.x] = A[tid + blockDim.x];
 	} 
         
     }
+
 
     __syncthreads();
 
@@ -277,6 +283,7 @@ __global__ void convolutionSharedAConstantF(float *A, float *B, const unsigned i
      B[tid] = localTotal ;
  
    }
+  }
 
 return;
 }

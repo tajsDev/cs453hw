@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --job-name=CS453_a3_conv_final  #the name of your job
+#SBATCH --job-name=CS453_a3_conv_final1  #the name of your job
 
 #change to your NAUID and file path
-#SBATCH --output=/scratch/taj262/a3.out #this is the file for stdout 
-#SBATCH --error=/scratch/taj262/a3.err #this is the file for stderr
+#SBATCH --output=/scratch/taj262/a3_final.out #this is the file for stdout 
+#SBATCH --error=/scratch/taj262/a3_final.err #this is the file for stderr
 
 #SBATCH --time=00:05:00		#Job timelimit is 3 minutes
 #SBATCH --mem=10000         #memory requested in MiB
@@ -18,7 +18,7 @@ N=200000000
 
 for M in 1 2 3 4 5 6 7 8
 do
-	for R in 1500 #5 50 500 #1000 1500 2000 
+	for R in 5 50 1500 #1000 1500 2000 
 	do
                 RNELEMTOTAL=$((2*R+1))
  		nvcc -O3 -D MODE=$M -D N=$N -D R=$R -D RNELEMTOTAL=$RNELEMTOTAL -diag-suppress 186 -arch=compute_$CC -code=sm_$CC -lcuda -lineinfo -Xcompiler -fopenmp cs453_a3_taj262.cu -o cs453_a3_taj262
