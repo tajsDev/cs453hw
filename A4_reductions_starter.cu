@@ -229,6 +229,22 @@ void computeReductionCPU(int * A, const unsigned int N, int * globalSum)
 __global__ void inefficientReductionKernel(int * A, const unsigned int N, int * globalSum) {
 
   //write code here
+  unsigned int tid = threadIdx.x*2;
+
+  for (unsigned int stride=1; stride<=blockDim.x; stride*=2)
+  {
+    if(threadIdx.x%stride == 0){
+    A[tid] += A[tid+stride];
+    }
+
+    //syncthreads because we will be reading after writing global memory
+    __syncthreads();
+  }
+
+  if(threadIdx.x==0){
+
+    *outputSum = A[0];
+  }
   
   return;
 }
@@ -241,6 +257,24 @@ __global__ void inefficientReductionKernel(int * A, const unsigned int N, int * 
 __global__ void sumReductionSharedMemoryMultipleBlockKernel(int * A, const unsigned int N, int * outputSum) {
 
   //write code here
+  unsigned int tid = threadIdx.x;
+
+  //start with maximum stride (elements to add are blockDim.x elements away at first iteration)
+  //next iteration is a half stride away and so on
+  for (unsigned int stride = blockDim.x; stride>=1; stride/=2)
+  {
+    if(threadIdx.x<stride){
+    A[tid] += A[tid+stride];
+    }
+
+    //syncthreads because we will be reading after writing global memory
+    __syncthreads();
+  }
+
+  if(threadIdx.x==0){
+
+    *outputSum = A[0];
+  }
 
   return;
 }
@@ -253,6 +287,41 @@ __global__ void sumReductionSharedMemoryMultipleBlockKernel(int * A, const unsig
 __global__ void sumReductionSharedMemoryMultipleBlockThreadCoarseningKernel(int * A, const unsigned int N, int * outputSum) {
 
   //Write code here
+__shared__ int sharedA[BLOCKSIZE];
+  
+  //starting position in A based on block ID
+  //called "segment" in the textbook
+  unsigned int offsetIdx = 2*COARSEFACTOR*blockDim.x*blockIdx.x;
+
+  unsigned int offsetIdxThread = offsetIdx + threadIdx.x;
+
+  int localSum = A[offsetIdxThread];
+
+  for(unsigned int i=1; i<COARSEFACTOR*2; i++){
+  localSum += A[offsetIdxThread + i*blockDim.x];
+  }
+
+
+  sharedA[threadIdx.x] = localSum;  
+
+  //Start shared memory stride
+  //start with maximum stride (elements to add are blockDim.x elements away at first iteration)
+  //next iteration is a half stride away and so on
+  for (unsigned int stride = blockDim.x/2; stride>=1; stride/=2)
+  {
+
+    //syncthreads because we will be reading after writing shared memory
+    __syncthreads();
+
+    if(threadIdx.x<stride){
+    sharedA[threadIdx.x] += sharedA[threadIdx.x+stride];
+    }
+
+  }
+
+  if(threadIdx.x==0){
+    atomicAdd(outputSum, sharedA[0]);
+  }
 
   return;
 }
@@ -264,6 +333,41 @@ __global__ void sumReductionSharedMemoryMultipleBlockThreadCoarseningKernel(int 
 __global__ void extendModeThreeWithAtomicUpdatesSharedMemoryOneElems(int * A, const unsigned int N, int * outputSum) {
 
 //Write code here
+__shared__ int sharedA[BLOCKSIZE];
+  
+  //starting position in A based on block ID
+  //called "segment" in the textbook
+  unsigned int offsetIdx = 2*COARSEFACTOR*blockDim.x*blockIdx.x;
+
+  unsigned int offsetIdxThread = offsetIdx + threadIdx.x;
+
+  int localSum = A[offsetIdxThread];
+
+  for(unsigned int i=1; i<COARSEFACTOR*2; i++){
+  localSum += A[offsetIdxThread + i*blockDim.x];
+  }
+
+
+  sharedA[threadIdx.x] = localSum;  
+
+  //Start shared memory stride
+  //start with maximum stride (elements to add are blockDim.x elements away at first iteration)
+  //next iteration is a half stride away and so on
+  for (unsigned int stride = blockDim.x/2; stride>=1; stride/=2)
+  {
+
+    //syncthreads because we will be reading after writing shared memory
+    __syncthreads();
+
+    if(threadIdx.x<stride){
+    sharedA[threadIdx.x] += sharedA[threadIdx.x+stride];
+    }
+
+  }
+
+  if(threadIdx.x==0){
+    atomicAdd(outputSum, sharedA[0]);
+  }
 
 return;
 }
@@ -274,6 +378,41 @@ return;
 __global__ void extendModeThreeWithAtomicUpdatesSharedMemoryNumWarpsElems(int * A, const unsigned int N, int * outputSum) {
 
 //Write code here
+__shared__ int sharedA[BLOCKSIZE];
+  
+  //starting position in A based on block ID
+  //called "segment" in the textbook
+  unsigned int offsetIdx = 2*COARSEFACTOR*blockDim.x*blockIdx.x;
+
+  unsigned int offsetIdxThread = offsetIdx + threadIdx.x;
+
+  int localSum = A[offsetIdxThread];
+
+  for(unsigned int i=1; i<COARSEFACTOR*2; i++){
+  localSum += A[offsetIdxThread + i*blockDim.x];
+  }
+
+
+  sharedA[threadIdx.x] = localSum;  
+
+  //Start shared memory stride
+  //start with maximum stride (elements to add are blockDim.x elements away at first iteration)
+  //next iteration is a half stride away and so on
+  for (unsigned int stride = blockDim.x/2; stride>=1; stride/=2)
+  {
+
+    //syncthreads because we will be reading after writing shared memory
+    __syncthreads();
+
+    if(threadIdx.x<stride){
+    sharedA[threadIdx.x] += sharedA[threadIdx.x+stride];
+    }
+
+  }
+
+  if(threadIdx.x==0){
+    atomicAdd(outputSum, sharedA[0]);
+  }
 
 return;
 }
