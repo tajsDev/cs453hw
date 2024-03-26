@@ -27,7 +27,7 @@
 //and output object files (*.o) and then link them.
 //However, this will make compilation less of a headache by not requiring separate compilation and still allow 
 //you to organize your GPU kernels in a separate file instead of having all kernels in this file.
-#include "cs453_a3_taj262.cuh"
+#include "A3_convolutions_taj262.cuh"
 
 
 //Error checking GPU calls

@@ -283,7 +283,6 @@ if (tid < NUMELEM) { // Load data into shared memory
      B[tid] = localTotal ;
  
    }
-  }
 
 return;
 }

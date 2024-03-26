@@ -18,12 +18,11 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
    }
 }
 
-#define MODE 1
+//#define MODE 1
 #define BLOCKSIZE 512
 
 //Only for modes 3-5
 #define COARSEFACTOR 16 
-
 using namespace std;
 
 
@@ -80,8 +79,8 @@ int main(int argc, char *argv[])
   int globalSumCPU=0;
   
   //Compute on the CPU:
-  computeReductionCPU(A, N, &globalSumCPU);
-  printf("\nCPU global sum (sequential CPU algorithm): %d", globalSumCPU);
+  //computeReductionCPU(A, N, &globalSumCPU);
+  //printf("\nCPU global sum (sequential CPU algorithm): %d", globalSumCPU);
 
   
   //CUDA event timers (outputs time in ms not s)
@@ -99,9 +98,15 @@ int main(int argc, char *argv[])
   
   //copy A to device
   //write code here
+  cudaEventRecord(begin,0);
+
   gpuErrchk(cudaMemcpy(dev_A, A, sizeof(int)*N, cudaMemcpyHostToDevice));
   //write code here
-  
+
+  cudaEventRecord(end,0);
+  cudaEventSynchronize(end);
+  cudaEventElapsedTime(&totalDataTransferTimeForArrayA,begin,end);
+ printf("\nTime to transfer A to device %f(ms)",totalDataTransferTimeForArrayA);
   int * dev_globalSum;
   //allocate on the device: the result
   gpuErrchk(cudaMalloc((int**)&dev_globalSum, sizeof(int)));  
@@ -216,7 +221,11 @@ void computeReductionCPU(int * A, const unsigned int N, int * globalSum)
     double tstart=omp_get_wtime();
     
     //write code here
-  
+	int localSum = 0;
+    for(int i = 0 ; i < N ; i++ ) {
+	localSum+=A[i];
+    }  
+	*globalSum = localSum;
     double tend=omp_get_wtime();
     
     printf("\nTime to compute the reduction on the CPU (sequential): %f", tend - tstart);
@@ -243,7 +252,7 @@ __global__ void inefficientReductionKernel(int * A, const unsigned int N, int * 
 
   if(threadIdx.x==0){
 
-    *outputSum = A[0];
+    *globalSum = A[0];
   }
   
   return;

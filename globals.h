@@ -3,10 +3,10 @@
 //and not other values that you may have used when implementing/debugging
 //your program. Also, ensure that these are uncommented when you submit.
 
-//#define N 200000000 //length of the input and output arrays
-//#define R 5 //filter array length (total length is 2*R+1)
-//#define RNELEMTOTAL 11 //total length of filter
-//#define MODE 1  //see implementations above for associated modes
+#define N 200000000 //length of the input and output arrays
+#define R 5 //filter array length (total length is 2*R+1)
+#define RNELEMTOTAL 11 //total length of filter
+#define MODE 1  //see implementations above for associated modes
 
 //1-D block size for all kernels
 #define BLOCKSIZE 512

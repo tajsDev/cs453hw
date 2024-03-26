@@ -22,7 +22,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 
 //Modes 1, 2, 3 are multiblock kernels
 
-#define MODE 3
+//#define MODE 3
 #define BLOCKSIZE 512
 
 //Only for mode 3
@@ -38,12 +38,6 @@ void generateDataset(int * A, const unsigned int N);
 void computeReductionCPU(int * A, const unsigned int N, int * globalSum);
 
 
-
-//Modes -1, -2, -3: these are single block kernels in the textbook
-__global__ void sumReductionGlobalMemoryOneBlockKernel(int * A, const unsigned int N, int * outputSum);
-__global__ void sumReductionGlobalMemoryOneBlockLessDivergenceKernel(int * A, const unsigned int N, int * outputSum);
-__global__ void sumReductionSharedMemoryOneBlockKernel(int * A, const unsigned int N, int * outputSum);
-
 //Mode 1
 __global__ void inefficientReductionKernel(int * A, const unsigned int N, int * outputSum);
 
@@ -53,7 +47,12 @@ __global__ void sumReductionSharedMemoryMultipleBlockKernel(int * A, const unsig
 //Mode 3
 __global__ void sumReductionSharedMemoryMultipleBlockThreadCoarseningKernel(int * A, const unsigned int N, int * outputSum);
 
-//Modes 4 and 5 are for the assignment
+//Use atomic updates to shared memory:
+//Mode 4
+__global__ void extendModeThreeWithAtomicUpdatesSharedMemoryOneElems(int * A, const unsigned int N, int * outputSum);
+
+//Mode 5
+__global__ void extendModeThreeWithAtomicUpdatesSharedMemoryNumWarpsElems(int * A, const unsigned int N, int * outputSum);
 
 
 
@@ -69,7 +68,6 @@ int main(int argc, char *argv[])
   }
 
   sscanf(argv[1],"%d",&N);
- 
   checkParams(N);
 
   printf("\nAllocating the following amount of memory for the dataset: %f GiB", (sizeof(int)*N)/(1024*1024*1024.0));
@@ -88,8 +86,11 @@ int main(int argc, char *argv[])
 
   
   //CUDA event timers (outputs time in ms not s)
-  float totalKernelTime;
+  float totalKernelTime,totalTransferTime;
   cudaEvent_t begin, end;
+  cudaEvent_t dev_begin,dev_end;
+  cudaEventCreate(&dev_begin);
+  cudaEventCreate(&dev_end);
   cudaEventCreate(&begin);
   cudaEventCreate(&end);
 
@@ -100,10 +101,16 @@ int main(int argc, char *argv[])
   //allocate on the device: A
   gpuErrchk(cudaMalloc((int**)&dev_A, sizeof(int)*N));  
   
+  //write code
+  cudaEventRecord(dev_begin,0);
   //copy A to device
   gpuErrchk(cudaMemcpy(dev_A, A, sizeof(int)*N, cudaMemcpyHostToDevice));
+  //write code
+   cudaEventRecord(dev_end,0);
+  cudaEventSynchronize(dev_end);
+  cudaEventElapsedTime(&totalTransferTime,dev_begin,dev_end);
   
-  
+  printf("\nTotal Transfer Time to Dev A (ms): %f",totalTransferTime);
   int * dev_globalSum;
   //allocate on the device: the result
   gpuErrchk(cudaMalloc((int**)&dev_globalSum, sizeof(int)));  
@@ -114,36 +121,6 @@ int main(int argc, char *argv[])
 
   cudaEventRecord(begin,0);
 
-  //Textbook modes with one block
-  //These will not be used in the assignment
-  if(MODE==-1 || MODE==-2 || MODE==-3)
-  {
-    if(N!=2*BLOCKSIZE)
-    {
-      printf("\nError: N should be constrained to 2*BLOCKSIZE\n");
-      return 0;
-    }  
-
-    if(MODE==-1)
-    {
-      sumReductionGlobalMemoryOneBlockKernel<<<1, BLOCKSIZE>>>(dev_A, N, dev_globalSum);
-    }
-    else if(MODE==-2)
-    {
-      sumReductionGlobalMemoryOneBlockLessDivergenceKernel<<<1, BLOCKSIZE>>>(dev_A, N, dev_globalSum);
-    }
-    else if(MODE==-3)
-    {
-      sumReductionSharedMemoryOneBlockKernel<<<1, BLOCKSIZE>>>(dev_A, N, dev_globalSum);
-    }
-
-  }
-  
-
-
-  //Textbook modes: multi-block
-  //Multi-block -- atomic updates only
-  //Inefficient reduction
   if(MODE==1)  {
   const unsigned int NBLOCKS=ceil(N*1.0/BLOCKSIZE*1.0);
   printf("\nNum blocks: %u", NBLOCKS);
@@ -236,99 +213,6 @@ void computeReductionCPU(int * A, const unsigned int N, int * globalSum)
     printf("\nTime to compute the reduction on the CPU (sequential): %f", tend - tstart);
 }
 
-
-
-
-//Mode -1 
-//Uses a single CUDA block
-//Sum reduction kernel in Figure 10.6 of the textbook
-__global__ void sumReductionGlobalMemoryOneBlockKernel(int * A, const unsigned int N, int * outputSum) {
-
-  unsigned int tid = threadIdx.x*2;
-
-  for (unsigned int stride=1; stride<=blockDim.x; stride*=2)
-  {
-    if(threadIdx.x%stride == 0){
-    A[tid] += A[tid+stride];
-    }
-
-    //syncthreads because we will be reading after writing global memory
-    __syncthreads();
-  }
-
-  if(threadIdx.x==0){
-
-    *outputSum = A[0];
-  }
- 
-  return;
-}
-
-//Mode -2
-//Uses a single CUDA block
-//Sum reduction kernel in Figure 10.9 of the textbook
-__global__ void sumReductionGlobalMemoryOneBlockLessDivergenceKernel(int * A, const unsigned int N, int * outputSum) {
-
-  unsigned int tid = threadIdx.x;
-
-  //start with maximum stride (elements to add are blockDim.x elements away at first iteration)
-  //next iteration is a half stride away and so on
-  for (unsigned int stride = blockDim.x; stride>=1; stride/=2)
-  {
-    if(threadIdx.x<stride){
-    A[tid] += A[tid+stride];
-    }
-
-    //syncthreads because we will be reading after writing global memory
-    __syncthreads();
-  }
-
-  if(threadIdx.x==0){
-
-    *outputSum = A[0];
-  }
-
-  return;
-}
-
-
-//Mode -3
-//Uses a single CUDA block
-//Sum reduction kernel in Figure 10.11 of the textbook
-__global__ void sumReductionSharedMemoryOneBlockKernel(int * A, const unsigned int N, int * outputSum) {
-
-  __shared__ int sharedA[BLOCKSIZE];
-  
-  unsigned int tid = threadIdx.x;
-
-  //First iteration is read from global memory and written to shared memory
-  sharedA[tid]=A[tid]+A[tid+BLOCKSIZE];
-
-  
-
-  //Start shared memory stride
-  //start with maximum stride (elements to add are blockDim.x elements away at first iteration)
-  //next iteration is a half stride away and so on
-  for (unsigned int stride = blockDim.x/2; stride>=1; stride/=2)
-  {
-
-    //syncthreads because we will be reading after writing global memory
-    __syncthreads();
-
-    if(threadIdx.x<stride){
-    sharedA[tid] += sharedA[tid+stride];
-    }
-
-  
-  }
-
-  if(threadIdx.x==0){
-
-    *outputSum = sharedA[0];
-  }
-  
-  return;
-}
 
 //Mode 1
 //"inefficient reduction" 
@@ -431,4 +315,96 @@ __shared__ int sharedA[BLOCKSIZE];
 
   return;
 }
+//Extends mode 3
+//Uses atomic updates to shared memory for the sum in the block
+__global__ void extendModeThreeWithAtomicUpdatesSharedMemoryOneElems(int * A, const unsigned int N, int * outputSum) {
+
+//Write code here
+__shared__ int sharedA[BLOCKSIZE];
+  
+  //starting position in A based on block ID
+  //called "segment" in the textbook
+  unsigned int offsetIdx = 2*COARSEFACTOR*blockDim.x*blockIdx.x;
+
+  unsigned int offsetIdxThread = offsetIdx + threadIdx.x;
+
+  int localSum = A[offsetIdxThread];
+
+  for(unsigned int i=1; i<COARSEFACTOR*2; i++){
+  localSum += A[offsetIdxThread + i*blockDim.x];
+  }
+
+
+  sharedA[threadIdx.x] = localSum;  
+
+  //Start shared memory stride
+  //start with maximum stride (elements to add are blockDim.x elements away at first iteration)
+  //next iteration is a half stride away and so on
+  for (unsigned int stride = blockDim.x/2; stride>=1; stride/=2)
+  {
+
+    //syncthreads because we will be reading after writing shared memory
+    __syncthreads();
+
+    if(threadIdx.x<stride){
+    sharedA[threadIdx.x] += sharedA[threadIdx.x+stride];
+    }
+
+  }
+
+  if(threadIdx.x==0){
+    atomicAdd(outputSum, sharedA[0]);
+  }
+
+ 
+return;
+}
+
+//Mode 5
+//Extends mode 3
+//Uses atomic updates to shared memory for the sum in the block (uses one element in shared memory per warp in each block)
+__global__ void extendModeThreeWithAtomicUpdatesSharedMemoryNumWarpsElems(int * A, const unsigned int N, int * outputSum) {
+
+//Write code here
+__shared__ int sharedA[BLOCKSIZE];
+  
+  //starting position in A based on block ID
+  //called "segment" in the textbook
+  unsigned int offsetIdx = 2*COARSEFACTOR*blockDim.x*blockIdx.x;
+
+  unsigned int offsetIdxThread = offsetIdx + threadIdx.x;
+
+  int localSum = A[offsetIdxThread];
+
+  for(unsigned int i=1; i<COARSEFACTOR*2; i++){
+  localSum += A[offsetIdxThread + i*blockDim.x];
+  }
+
+
+  sharedA[threadIdx.x] = localSum;  
+
+  //Start shared memory stride
+  //start with maximum stride (elements to add are blockDim.x elements away at first iteration)
+  //next iteration is a half stride away and so on
+  for (unsigned int stride = blockDim.x/2; stride>=1; stride/=2)
+  {
+
+    //syncthreads because we will be reading after writing shared memory
+    __syncthreads();
+
+    if(threadIdx.x<stride){
+    sharedA[threadIdx.x] += sharedA[threadIdx.x+stride];
+    }
+
+  }
+
+  if(threadIdx.x==0){
+    atomicAdd(outputSum, sharedA[0]);
+  }
+
+ 
+return;
+}
+
+
 
