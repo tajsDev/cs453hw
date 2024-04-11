@@ -25,9 +25,10 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 
 //Define any constants here
 //Feel free to change BLOCKSIZE
-#define BLOCKSIZE 32
-
-
+#define BLOCKSIZE 16
+#define GDIM 135000
+#define TILE_SIZE 8
+#define GN 7490
 using namespace std;
 
 
@@ -52,9 +53,12 @@ __global__ void distanceMatrixBaseline(float * dataset, float * distanceMatrix, 
 
 //Other kernels that compute the distance matrix (if applicable):
 
-__global__ void distanceMatrixOptimzed(float * dataset, float * distanceMatrix, const unsigned int N, const unsigned int DIM);
+__global__ void distanceMatrixOptimzed(float * dataset, float * distanceMatrix, const unsigned int N, const unsigned int DIM,float * sumOfDist);
 
 __global__ void queryDistanceMatrixOptimzed(float * distanceMatrix, const unsigned int N, const unsigned int DIM, const float epsilon, unsigned int * resultSet);
+
+__global__ void distanceMatrixShared(float * dataset, float * distanceMatrix, const unsigned int N, const unsigned int DIM,float * sumOfDist);
+
 
 //Part 2: querying the distance matrix
 __global__ void queryDistanceMatrixBaseline(float * distanceMatrix, const unsigned int N, const unsigned int DIM, const float epsilon, unsigned int * resultSet);
@@ -93,7 +97,8 @@ int main(int argc, char *argv[])
 
   float * dataset=(float*)malloc(sizeof(float*)*N*DIM);
   importDataset(inputFname, N, DIM, dataset);
-
+  float sumOfDist = 0 ;
+  float * dev_sumOfDist;
 
 
   //CPU-only mode
@@ -110,6 +115,9 @@ int main(int argc, char *argv[])
   float * dev_dataset;
   gpuErrchk(cudaMalloc((float**)&dev_dataset, sizeof(float)*N*DIM));
   gpuErrchk(cudaMemcpy(dev_dataset, dataset, sizeof(float)*N*DIM, cudaMemcpyHostToDevice));
+  gpuErrchk(cudaMalloc((float**)&dev_sumOfDist, sizeof(float)));
+  gpuErrchk(cudaMemcpy(dev_sumOfDist, &sumOfDist, sizeof(float), cudaMemcpyHostToDevice));
+
 
   //For part 1 that computes the distance matrix
   float * dev_distanceMatrix;
@@ -141,17 +149,28 @@ int main(int argc, char *argv[])
   dim3 blockDim(BLOCKDIM, BLOCKDIM);  
   dim3 gridDim((N + blockDim.x - 1) / blockDim.x, (N + blockDim.y - 1) / blockDim.y);
   //Part 1: Compute distance matrix
-  distanceMatrixOptimzed<<<gridDim, blockDim>>>(dev_dataset, dev_distanceMatrix, N, DIM);
+  distanceMatrixOptimzed<<<gridDim, blockDim>>>(dev_dataset, dev_distanceMatrix, N, DIM,dev_sumOfDist);
   //Part 2: Query distance matrix
   queryDistanceMatrixOptimzed<<<gridDim,blockDim>>>(dev_distanceMatrix, N, DIM, epsilon, dev_resultSet);
 
   }
+
+  else if(MODE==3){
+  unsigned int BLOCKDIM = BLOCKSIZE; 
+  unsigned int NBLOCKS = ceil(N*1.0/BLOCKDIM);
+  //Part 1: Compute distance matrix
+  distanceMatrixShared<<<NBLOCKS, BLOCKDIM>>>(dev_dataset, dev_distanceMatrix, N, DIM,dev_sumOfDist);
+  //Part 2: Query distance matrix
+  queryDistanceMatrixBaseline<<<NBLOCKS,BLOCKDIM>>>(dev_distanceMatrix, N, DIM, epsilon, dev_resultSet);
+  }
+
   //Note to reader: you can move querying the distance matrix outside of the mode
   //Part 2: Query distance matrix
   //queryDistanceMatrixBaseline<<<NBLOCKS,BLOCKDIM>>>(dev_distanceMatrix, N, DIM, epsilon, dev_resultSet);
   
   //Copy result set from the GPU
-  gpuErrchk(cudaMemcpy(resultSet, dev_resultSet, sizeof(unsigned int)*N, cudaMemcpyDeviceToHost));
+ gpuErrchk(cudaMemcpy(&sumOfDist, dev_sumOfDist, sizeof(float), cudaMemcpyDeviceToHost));
+gpuErrchk(cudaMemcpy(resultSet, dev_resultSet, sizeof(unsigned int)*N, cudaMemcpyDeviceToHost));
 //printDataset(N, DIM, dev_resultSet);
   //Compute the sum of the result set array
   unsigned int totalWithinEpsilon=0;
@@ -159,9 +178,8 @@ int main(int argc, char *argv[])
   //Write code here
   for(int i = 0 ; i < N ; i++ ) {
 	totalWithinEpsilon+=resultSet[i];
-        printf("%d,",resultSet[i]);
   }
-
+  printf("\nsum of distances: %u",sumOfDist);
   totalWithinEpsilon = totalWithinEpsilon/N;
   printf("\nTotal number of points within epsilon: %u", totalWithinEpsilon);
 
@@ -372,20 +390,23 @@ __global__ void distanceMatrixBaseline(float * dataset, float * distanceMatrix, 
 }
 
 //One thread per feature vector -- baseline kernel
-__global__ void distanceMatrixOptimzed(float * dataset, float * distanceMatrix, const unsigned int N, const unsigned int DIM)
+__global__ void distanceMatrixOptimzedHalf(float * dataset, float * distanceMatrix, const unsigned int N, const unsigned int DIM,float * sumOfDist)
 {
   //write code here  
  int tidX = threadIdx.x + (blockDim.x * blockIdx.x) ;
  int tidY = threadIdx.y + (blockDim.y * blockIdx.y);
- if (tidX < N && tidY < N )  { 
+ if (tidX < tidY && tidY < N )  { 
 	float dist = 0.0f;
         float diff = 0.0f;
+
 	for(int i = 0 ;i < DIM; i++ ) {
 		diff = dataset[tidX * DIM + i] - dataset[tidY * DIM + i];
                 dist+=diff * diff;
 	}
-	distanceMatrix[tidX * N + tidY] = sqrt(dist);
-   } 
+        float newVal = sqrt(dist);
+	distanceMatrix[tidX * N + tidY] = newVal;
+        distanceMatrix[tidY * N + tidX] = newVal;
+        } 
   return;
 }
 
@@ -409,5 +430,31 @@ __global__ void queryDistanceMatrixOptimzed(float * distanceMatrix, const unsign
  
   return; 
 }
+
+
+//One thread per feature vector -- baseline kernel
+__global__ void distanceMatrixHalf(float * dataset, float * distanceMatrix, const unsigned int N, const unsigned int DIM,float * sumOfDist)
+{
+
+  //write code here  
+ int tid = threadIdx.x + (blockDim.x * blockIdx.x) ;
+ if (tid < N )  { 
+       	float diff = 0 ; 
+         for (unsigned int i = 0; i < tid; i++) {  
+		distanceMatrix[tid * N + i] = 0 ;
+                 float dist = 0.0f; 
+                 for (unsigned int d = 0; d < DIM; d++) { 
+                     diff = dataset[tid * DIM + d] - dataset[i * DIM + d]; 
+		     diff *= diff ;
+                     dist += diff ; 
+		  }
+                
+                 distanceMatrix[tid * N + i] = sqrt(dist);
+                 distanceMatrix[i * N + tid] = sqrt(dist); 
+     }
+   }   
+*sumOfDist = 2; 
+}
+
 
 
